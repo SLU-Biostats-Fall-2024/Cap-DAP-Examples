@@ -42,7 +42,7 @@ cams <- cams[complete.cases(cams),]
 
 We end up with 55 rows and 30 variables!
 
-The first column, cam-sd, just provides a unique identifier for the camere that the data correspond to. 
+The first column, cam-sd, just provides a unique identifier for the camere that the data correspond to.
 
 Now let's rearrange our data a bit so that the response variable, div_shan, comes next
 
@@ -54,7 +54,6 @@ cams <- cams %>% relocate(div_shan, .after = cam_sd)
 
 Let's looks at our response variable
 
-
 ```{r}
 ggplot(cams, aes(div_shan))+
   geom_histogram()
@@ -62,7 +61,6 @@ range(cams$div_shan, na.rm = T)
 ```
 
 Looks more-or-less normal but has quite a few zeroes.
-
 
 ### Step 2 - Evaluate predictor variables.
 
@@ -161,7 +159,6 @@ Now we have 55 observations and 23 variables, of which 21 are possible predictor
 write.csv(cams, here("Data/regression/cleaned_cam_data.csv"), row.names = F)
 ```
 
-
 ### Step 3 - Guesstimate predictors
 
 We can take a look at how highly correlated our response variable is with our numeric predictor variables to make a guess as to which predictors might be important and likely to be included in our model.
@@ -190,7 +187,6 @@ ggplot(cams, aes(P_Shrub50, div_shan))+
 ```
 
 Again, lots of zeroes. But might be positively trending.
-
 
 ```{r}
 ggplot(cams, aes(MeanAllDensity, div_shan))+

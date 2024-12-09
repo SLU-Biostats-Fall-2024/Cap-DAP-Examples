@@ -10,7 +10,7 @@ So far, we've looked at linear regression, a method we use when we are intereste
 
 Sometimes, we have more than one predictor variable we are interested in, and we can examine the relationship between more than one predictor variable and the response variable. This is called "multiple regression." Note that we can conduct multiple regression with both categorical and continuous predictor variables, but, for standard multiple regression, our response variable should be continuous.
 
-Multiple linear regression makes the same assumptions about our predictor variables as simple bivarite linear regression, which are that:
+Multiple linear regression makes the same assumptions about our predictor variables as simple bivariate linear regression, which are that:
 
 -   The data have a linear (vs. non-linear) relationship.
 

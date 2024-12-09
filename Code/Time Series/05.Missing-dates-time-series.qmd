@@ -1,0 +1,102 @@
+---
+title: "Dealing with missing dates"
+format: html
+editor: visual
+---
+
+## Dealing with Missing Dates in a time series object
+Sometimes, our date data have gaps. Perhaps samples were generally collected monthly, but not during the coldest months of the year. Perhaps someone forgot to write down a measurment during some week or month.
+
+For your time series object to work "correctly" it needs a row for every unit of time sampled.
+
+For example, say your data were collected once a month over the course of 5 years. Your data set should therefore have 5 x 12 = 60 rows. Also, time series analysis will assume that the distance between each sampling unit is the same; in other words, the temporal space between every row of data is equal. That is why we can use `frequency = 12` for example to say we have data that are reported once every month. 
+
+Let's look at an example. 
+
+Set things up and pull in some data
+```{r}
+rm(list = ls())
+library(tidyverse)
+library(here)
+library(zoo)
+```
+Pull in the data. These are made up data showing mean monthly temperature in some location measured every month since 2020.
+```{r}
+temps <- read.csv(here("Data/time-series-data/needs_fixing.csv"))
+```
+We have 52 rows of data, but with 12 months per year x 5 years we should have 60 rows of data.
+
+Let's make some dates and take a look
+
+```{r}
+temps$Date <- mdy(temps$Date) #use lubridate to make into a date
+```
+Now let's plot the data
+
+```{r}
+ggplot(temps, aes(Date, mean_temperature))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+```
+So it looks like good time series data, but we have a problem.
+
+To make these data into a time series object, we need to tell R the frequency, but in some cases, we have gaps. For example, if we look at the top of our file:
+
+```{r}
+head(temps, 5)
+```
+We see that we are missing data from March 2020. 
+
+Basically, we need to tell to make a row for every month that has missing data and fill the value with NA.
+
+We will use the `complete()` function from the `tidyr` package to do so.
+
+```{r}
+temps_complete <- temps |> complete(
+  Date=seq(min(Date), max(Date), by = "1 month"))
+
+#tells R that the Date variable is a sequence from the lowest (min) to highest (max) Date with an interval of 1 month.
+```
+And voila! Now temps_complete has a row for every month for which there were no data recorded.
+
+We could go back and use our friend `which(temps_complete$Month == NA)` if we wanted to get the month and year data into those columns, but since we'll just make mean_temperature into the time series, we don't need to.
+
+### Make the time series from the complete data
+First, let's make our same plot, but with the complete data
+
+```{r}
+ggplot(temps_complete, aes(Date, mean_temperature))+
+  geom_point()+
+  geom_line()+
+  theme_bw()
+```
+Notice the gaps in the lines where we had NA values. That is good - it helps us see where we have missing data.
+
+Now make the time series object:
+
+```{r}
+temps_complete$mean_temperature <-ts(temps_complete$mean_temperature, 
+                                     frequency = 12, #tells R this is a monthly event
+                                     start = c(2020,1) #tells R that the data begin in January (the "1" of 2020)
+                                     )
+```
+Now let's make and plot a moving average
+
+```{r}
+temps_sma <- rollmean(temps_complete$mean_temperature, k = 2, fill = NA) #k = 2 says to use 2 months as rolling average
+```
+
+Let's look!
+
+```{r}
+temps_complete$sma <- as.numeric(temps_sma)
+
+ggplot(temps_complete, aes(x =Date))+
+  geom_line(aes(y = mean_temperature), color = "blue", size = 1) + #original time series
+  geom_line(aes(y = sma), color = "red", size = 1.2) + #moving average
+  labs(x = "Date", y = "Mean monthly temperature, F")+
+  theme_bw()
+
+```
+You can see that R can't fill in the whole moving average when there are gaps in the data, but that's ok - generally we have longer time series than this one. 

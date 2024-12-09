@@ -1,0 +1,19 @@
+---
+title: "general pointers"
+format: html
+editor: visual
+---
+
+## General Suggestions for Cap DAP:
+
+1.  Remember the biology! This is a *bio*stats class, after all. In your hypothesis statements when you describe the alternative hypothesis, please give a biological rationale for your expectation. Again when you provide the interpretation, address whether the outcome of the analysis makes *biological* sense, not just statistical sense.
+
+2.  If you abbreviate any variable names (and you probably will), then please be clear about them in your original hypothesis statement. For example, if SHAN is the Shannon diversity index and MA is some sort of habitat index, then explain that:
+
+-   Example: My null hypothesis is that biological diversity, measured as the Shannon index (SHAN), will not differ betwen the 4 habitat types in the study (MA: grassland, forest, developed, wetland).
+
+3.  Consider using tricks from Chapter 8 to make really nice finished plots.
+4.  WATCH YOUR LANGUAGE:
+    -   We can conclude that the results of a statistical test are *non-significant* or, more specifically, that a difference is not statistically signficant, but we NEVER SAY that a difference is INSIGNIFICANT. The word insignificant implies "not important" and your results ARE ALWAYS important, even if their importance is in showing you that your groups are not different from one another. Make sense?
+5.  Use leading zeros when you write numbers in the commentary part of your .qmd file. That means e.g. 0.05 and not .05.
+6.  
