@@ -8,7 +8,7 @@ editor: visual
 
 We have seen that we can use logistic regression when we have a categorical and binary response variable, such as "yes" or "no", "present" vs. "absent", etc.
 
-We saw that what the regression is really using as the Y variable is the probabiity of a certain categorical outcome - that is how, mathematically, we can convert a categorical response to a numeric value.
+We saw that what the regression is really using as the Y variable is the probability of a certain categorical outcome - that is how, mathematically, we can convert a categorical response to a numeric value.
 
 In Ordinal regression, we have again have a categorical response variable, but it has a very special structure in that the response variable:
 
@@ -23,7 +23,9 @@ When both of those conditions are true, we use Ordinal Logistic Regression.
 ```{r}
 rm(list = ls())
 library(tidyverse)
-library(ggfortify)
+library(MASS) #to fit ordinal regression model
+library(Hmisc) #to test assumptions of ordinal regression visually
+library(IDPmisc) #to ignore -Inf for plotting
 library(oddsratio) #converts log odds to odds ratios
 library(visreg) #for visualizing regression output
 library(here)
@@ -32,85 +34,322 @@ library(here)
 Let's take a look at some data.
 
 ```{r}
-plants <- read.csv(here("Data/regression/plant_pollination.csv"))
+colds <- read.csv(here("Data/regression/fake_cold_symptoms.csv"))
 ```
 
-These are imaginary data for a species of plant that produces flowers to attract pollinators. If the plants are pollinated, then they produce seeds via sexual reproduction. If the plants fail to be pollinated, they produce seeds via "selfing" which show much less genetic diversity. Researchers were interested in trying to predict what factors influence the likelihood that a plant is pollinated or not.
+These are imaginary data for in which researchers are trying to understand what factors are most likely to predict the severity of cold symptoms when they occur. The response variable is "health_status" and it is ordinal with values: no symptoms \< moderate symptoms \< severe symptoms. Note the ORDER to the response variable.
+
+Predictors are the person's age, which is continuous discrete data, RSV vaccine status, which is binary, and whether or not the person is a smoker, which is also binary.
 
 ### Start simple
-
-Let's start by seeing if there is a relationship between the number of infloresences (clusters of flowers) a plant produces and whether or not the plant is visited by a pollinator.
 
 First, we'll plot our data, starting with a histogram of the response variable
 
 ```{r}
-ggplot(plants, aes(pollination_status))+
+ggplot(colds, aes(health_status))+
   geom_histogram(stat = "count")
 ```
 
-You can see that we have a binary variable.
+You can see that we have categorical response variable. We can also see that the variable is ordered alphabetically.
 
-Now let's see what the relationship looks like between pollination_status and number of infloresences.
-
-```{r}
-ggplot(plants, aes(num_infloresences, pollination_status))+
-  geom_point()
-```
-
-It looks like plants that are visited by pollinators produce more infloresences than plants that are not visited by pollinators.
-
-Let's code pollination status as 1 = yes and 0 = no.
+**OUR FIRST STEP IS TO MAKE OUR RESPONSE VARIABLE INTO AN ORDERED FACTOR IN WHICH WE SPECIFY THE ORDER OF THE LEVELS OF THE FACTOR!!!**
 
 ```{r}
-levels(plants$pollination_status)
-yes <- which(plants$pollination_status == "yes")
-plants$pollination_code <- NA
-plants$pollination_code[yes] <- 1
-no <- which(plants$pollination_status == "no")
-plants$pollination_code[no] <- 0
+colds$health_status <- factor(colds$health_status, 
+                              levels = c("no symptoms", "mild symptoms", "severe symptoms"), #levels are specified EXACTLY as they appear in the column but in ORDER from low to high
+                              ordered = TRUE) #ordered = TRUE tells R that we care about the order 
 ```
 
-### Fit the model
-
-To fit a logistic regression model, we need to use a generalized linear model (`glm`), rather than a general linear model (`lm`), so that we can tell R that our response data are binary.
+In our case, to summarise and visualize the data before proceeding with our analysis, we may wish to get counts of all of the predictors based on the response to look at. We will use `xtabs` to get the frequencies for our categorical predictors and `ftable` to flatten the table:
 
 ```{r}
-inflor.mod <- glm(pollination_code ~ num_infloresences, family = "binomial", data = plants)
-summary(inflor.mod)
+ftable(xtabs(~health_status+ RSV_vaccine + smoker, data = colds))
 ```
 
-The coefficients in the output indicate the average change in log odds of a plant being visited by a pollinator (yes = 1) with each increase in the number of infloresences that were produced by the plant.
-
-A 1 unit increase in number of infloresences increases the log odds of a species being present by 1.034.
-
-But what the heck does that mean? To figure it out we need to calculate something called "odds ratios" - we'll use the package `oddsratio` to do so.
+Now we can use `facet_grid` to help make a plot of predictors and response variables
 
 ```{r}
-or_glm(
-  data = plants, 
-  model= inflor.mod, 
-  incr = list(num_infloresences = 1))
+ggplot(colds, aes(x = health_status, y = age))+ #plot our response var as X right now and against our continuous variable
+  geom_boxplot()+
+  geom_jitter()+ # to space the points a tad
+  facet_grid(RSV_vaccine ~ smoker, margins = T)+ #margins = T plots the top and side levels on grid
+  theme_bw()+
+theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) #turn axis labels sideways for readability
 ```
 
-Now we see the oddratio for num_infloresences = 2.813 which means that, for every 1 unit increase in number of infloresences, the odds that the plant will be visited by a pollinator is 2.813. It is 2.8 times more likely!
+Ok - so from our figure we can see that smoking status and age but perhaps not rsv status seem to influence cold severity.
 
-Let's plot it!
+How would we check?
+
+## Ordinal logistic regression
+
+Our model is a case of logistic regression because, just like for binary logistic regression, we want to have a way to convert a categorical response into a numeric value, and we do that in the same way: by modeling the probability of having a certain health status rather than modeling health status itself.
+
+There are many different ways and different packages that allow you to fit an ordinal regression. Here we will use the `polr` function in the `MASS` package. `polr` stands for "proportional odds logistic regression".
+
+### Multiple regression
+
+In this case, we think age, vaccination status and smoking status may impact cold severity. Let's build a model to test that.
+
+Let's create the model:
 
 ```{r}
-ggplot(plants, aes(num_infloresences, pollination_code))+
-  geom_point()+
-  stat_smooth(method = "glm", method.args = list(family = "binomial"), se = F)
+ord_health.m <- polr(health_status ~ age + RSV_vaccine + smoker, data = colds, Hess = TRUE) #Hess = True allows us to get standard errors
 ```
 
-We can make a plot based on probabailities if we use the `visreg` package.
+### Check Assumptions
+
+Testing to see if our model meets the assumptions for ordinal regression is tricky and **BEYOND THE SCOPE OF THIS COURSE.** However, the below code walks you through how you might check the key assumption. I am not expecting you to do this for your CapDAP but want you to see that we still need to test assumptions before interpreting our model.
+
+One of the assumptions of ordinal regression is called the "parallel regression" or "proportional odds" assumption. It states that, as you move between levels of the response variable, the coefficients for the predictor variables remain the same. In other words, in our example, let's say that there is a positive effect of age on health status, with older people being more likely to show more severe symptoms. The proportional odds assumption says that, in essence, the effect of age (i.e. the coefficient for age) is the same when we compare folks with no symptoms to either category of folks with symptoms, or when we compare folks with mild symptoms to folks with no symptoms or folks with severe symptoms.
+
+Testing this assumption can be complicated. We will use a graphical approach, like we do to test for normality with our simple linear regression or ANOVA tests.
+
+To make the plot, we need the `Hmisc`package.
+
+What we will do is graph the predicted log odds for our response variable in which we change the response to either health_status = no vs. grouped mild and severe symptoms and then with health status = grouped none or mild vs. severe.
+
+If the difference in log odds vs. age is the same for both conditions, then we would think the proportional odds assumption holds.
+
+First, create a function in which we estimate the values to be plotted.
 
 ```{r}
-visreg(inflor.mod, "num_infloresences", 
-       gg = T, #use ggplot vs. base R
-       scale = "response")+
-  labs(x = "Number of infloresences on plant",
-       y = "Prob. of being visited by pollinator")+
-  theme_bw()
+sf <- function(y){ #tells R that sf is a function that will take a single argument
+  c('Y>= no symptoms' = qlogis(mean(y >= 1)),
+    'Y>= mild symptoms' = qlogis(mean(y >= 2)),
+    'Y>= severe symptoms' = qlogis(mean(y >= 3))) 
+} #notice that this function works for an ordinal response variable with 3 levels; hidden inside R's engine is a numeric coding for the ordered category levels so we can use mean(y >=1) for example because R assumes the first level of the ordered factor has value 1 and so on. You would need to adjust this if you have more than 3 levels of your ordered factor.
 ```
 
-So that's it for a logistic regression! Read the next file, `02.multiple-logistic-regression.qmd` to learn more about how to model the role of multiple predictor variables on a binary response variable. It might help you to also look through the code on multiple linear regression first.
+Next, use the function on subsets of our data based on the predictors.
+
+```{r}
+(s <-with(colds, summary(as.numeric(health_status) ~ age + RSV_vaccine + smoker, fun = sf)))
+```
+
+The table provides the predicted values of various states of the y-variable, health_status, that we would get if we regressed our response variable against our predictor variables one at a time without the parallel slopes assumption.
+
+Then, to evaluate the parallel slopes assumption, we make several different "binary versions" of our response variable and run a series of binary logistic regressions and check the equality of coefficients across different "cutpoints" of the response variable (eg one cutpoint set might be no symptoms vs. symptomps present).
+
+To do this, we transform the y-variable so that y = 0 for certain values of a placeholder, a and 1 if greater than or equal to some value of a. WE do this for k-1 levels of the ordinal variable. So, for an ordinal variable with 3 levels, we do this twice. If we had 4 levels, we would perform this step 4-1 = 3 times (k = number of levels of the ordinal variable).
+
+Take a look:
+
+```{r}
+#first pass; set response variable to "no symptoms" vs "mild + severe symptoms"
+
+#fit first logistic regression with glm
+
+glm(I(as.numeric(health_status)>=2) ~ smoker, family = "binomial", data = colds) #creates new response variable for health status levels 2+3 and runs model just using one categorical predictor
+
+#fit second logitstic regression with glm; response is now "no or mild symptpms" vs "severe symptoms"
+
+glm(I(as.numeric(health_status)>=3) ~smoker, family = "binomial", data = colds)
+```
+
+Now get ready to plot. We need parts of our object s that we created in line 126
+
+```{r}
+s[, 4] <- s[, 4] - s[, 3]
+s[, 3] <- s[, 3] - s[, 3]
+s
+```
+
+Now use base plotting to plot
+
+```{r}
+plot(s, which = 1:3, pch=1:3, xlab = "log odds", main = ' ', xlim = range(s[,3:4])) #my plot doesn't run because we have two -Inf values in Y>= severe symptoms
+
+#try IDPmisc package NaRV.omit function to get range ingorning -Inf
+
+plot(s, 
+     which = 1:3, 
+     pch=1:3, 
+     xlab = "log odds", 
+     main = ' ', 
+     xlim = (c(0, -3.536117)))
+     ) 
+```
+
+### Interpret our model
+
+Ok. That was a LOT. **I hope maybe you skipped it.**
+
+Let's just work on understanding our model.
+
+```{r}
+summary(ord_health.m)
+```
+
+First we get the coefficients for each of our predictor variables. There are no P-values associated with them, though we can calculate the P-values if we really want them (see below).
+
+Then we get the intercepts, and, unlike with simple linear regression, we have a couple of different intercepts, which represent the "cutpoints" for our ordinal response variable. We have a cut between no and mild symptoms and between mild and severe symptoms in an imagined continuous variable representing health_status.
+
+Last we see the residual deviance of our model and the AIC for our model, which are helpful if we are doing model selection.
+
+### Getting p-values for our first model
+
+If you feel you must have a p-value, the way we can calculate them is to compare the t- values against the normal distribution. The value will be biased with smaller and smaller sample sizes but is reasonable for large samples. There is much debate over the whole practice and over what constitues a large enough sample, which is why R doesn't automatically generate P-values.
+
+We can get the P-values by storing our coefficient table, calculate P-values, and combine back with the table.
+
+```{r}
+ctable <- coef(summary(ord_health.m))
+```
+
+Now we calculate the pvalues and combine to our coefficient table
+
+```{r}
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE). #gets p values for standard normal dist
+
+ctable <- cbind(ctable, "p value" = p)
+```
+
+And we can get confidence intervals for the parameter estimates. If the 95% confidence interval does not cross 0, the parameter estimate is statistically significant. This might be a better approach than calculating p-values.
+
+There are 2 different methods to get teh confidence intervals. In the first, we use the likelihood function associated with our model. In the second, we use the standard errors of our estimates and assume a normal distribution. Let's take a look at both here.
+
+```{r}
+#use likelihood method; this is default
+ci <- confint(ord_health.m)
+
+#use se's and normal distribution
+confint.default(ord_health.m)
+```
+
+We can see that the confidence intervals for age and being a smoker vs. non-smoker do not include zero, but vaccination status does. Thus, it is not a significant predictor of cold severity.
+
+### Calculating odds ratios for our first model
+
+REMEMBER though that our coefficients are in terms of logs, and thus they can be difficult to interpret.We can convert them to something called "odds ratios" (see the background material in this project about logistic regression). To get the odds ratios and confidence intervals, we "exponentiate" them to transform them from logs.
+
+```{r}
+#get odds ratios
+exp(coef(ord_health.m))
+
+#get odds ratios for coeffients and confidence intervals
+exp(cbind(OR = coef(ord_health.m), ci))
+```
+
+We interpret these odds ratios in the same way we do for a binary logistic regression.
+
+### Interpreting odds ratios for our first model
+
+*Smoking status* For people who smoke, the odds of having cold symptoms (i.e. mild or moderate vs. no symptoms) is 4.22 X higher than for non-smokers, holding all else equal.
+
+For people who don't smoke, the odds of not having cold symptoms (i.e no symptoms vs. mild or moderate symptoms) is 4.22% lower than for smokers, holding all else equal.
+
+*Vaccination status* Vaccination status had no statistically significant effect on health_status
+
+Age For every 1 year increase in age, the odds of showing cold symptom (mild or serious vs. no symptoms) is 1.5 X higher (i.e. increases 50%)
+
+### Rerun the model with only significant predictors
+
+Since vaccination status was non-signficant, let's drop it from our model and redo some of these steps:
+
+```{r}
+ord_health.m2 <- polr(health_status ~ age + smoker, data = colds, Hess = TRUE)
+```
+
+### Interpret our second model
+
+```{r}
+summary(ord_health.m2)
+```
+
+### Getting p-values for our second model
+
+We can get the P-values by storing our coefficient table, calculate P-values, and combine back with the table.
+
+```{r}
+ctable2 <- coef(summary(ord_health.m2))
+```
+
+Now we calculate the pvalues and combine to our coefficient table
+
+```{r}
+p <- pnorm(abs(ctable2[, "t value"]), lower.tail = FALSE) #gets p values for standard normal dist
+
+ctable2 <- cbind(ctable2, "p value" = p)
+```
+
+Again, we can get confidence intervals for the parameter estimates. If the 95% confidence interval does not cross 0, the parameter estimate is statistically significant. This might be a better approach than calculating p-values.
+
+```{r}
+#use likelihood method; this is default
+ci2 <- confint(ord_health.m2)
+
+#use se's and normal distribution
+confint.default(ord_health.m2)
+```
+
+We can see that the confidence intervals for age and being a smoker vs. non-smoker do not include zero and thus are statistically significant in our model.
+
+### Calculating odds ratios for our second model
+
+REMEMBER though that our coefficients are in terms of logs, and thus they can be difficult to interpret.We can convert them to something called "odds ratios" (see the background material in this project about logistic regression). To get the odds ratios and confidence intervals, we "exponentiate" them to transform them from logs.
+
+```{r}
+#get odds ratios
+exp(coef(ord_health.m2))
+
+#get odds ratios for coeffients and confidence intervals
+exp(cbind(OR = coef(ord_health.m2), ci2))
+```
+
+We interpret these odds ratios in the same way we do for a binary logistic regression.
+
+### Interpreting odds ratios for our second model
+
+*Smoking status* For people who smoke, the odds of having cold symptoms (i.e. mild or moderate vs. no symptoms) is 4.22 X higher than for non-smokers, holding all else equal.
+
+For people who don't smoke, the odds of not having cold symptoms (i.e no symptoms vs. mild or moderate symptoms) is 4.22% lower than for smokers, holding all else equal.
+
+*Age* For every 1 year increase in age, the odds of showing cold symptom (mild or serious vs. no symptoms) is 1.5 X higher (i.e. increases 50%)
+
+### Getting predicted probabilities for our second model and plotting the data
+
+We are only doing this for our second model because we don't need a plot that includes the non-signficant RSV vaccination status.
+
+For some, predicted probabilities are easier to understand than logits or odds ratios, so let's look at how to calculate them. We will use our second model to do so since it includes only the
+
+For example, we can vary age for each level of vaccination status and smoking status and calculate the probability of no, mild, or moderate symptoms. To do so, we generate a new dataset.
+
+It is a little tricky, because we need to know in advance how the groups are brokend down in our colds data set where we have a total of 476 rows. The `ftable(xtabs())` code we ran on line 66 might help.
+
+Note that age ranges from 17 - 100 so we will need to get predictions for that entire age range (84 years): - all ages & smoker - all ages & non-smoker
+
+Which means we need 84 \* 2 = 168 rows of data.
+
+```{r}
+newdata <- data.frame( 
+  smoker = rep(c("non-smoker", "smoker"), each = 168), #creates a column with "non-smoker" repeated 168 times followed by "smoker" repeated 168 times
+  age = rep(seq(from = 17, to = 100), 2) #creates a column that lists the numbers from 1:100 followed by 1:100
+)
+```
+
+Now we can add the predicted probabilities
+
+```{r}
+newdata <- cbind(newdata, predict(ord_health.m2, newdata, type = "probs"))
+```
+
+Now, because we have three separate columns for the probability of no, mild, and severe symptoms, repspectively, we need to go from wide to long format with `pivot_longer`
+
+```{r}
+newdata_l <- newdata |> pivot_longer(`no symptoms`:`severe symptoms`, names_to = "health_status", values_to = "Probability")
+```
+
+Now we can plot
+
+```{r}
+ggplot(newdata_l, aes(x = age, y = Probability, color = health_status))+
+  geom_line()+
+  facet_grid(~smoker)
+```
+
+It's ugly, but there you go!
+
+### Sources
+
+Much of the code in this document was adapted from [this website](https://stats.oarc.ucla.edu/r/dae/ordinal-logistic-regression/)
